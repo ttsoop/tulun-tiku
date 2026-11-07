@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>模拟超星章节测验（题库生成器自测用）</title>
+<style>
+  body { font: 14px/1.6 "Microsoft YaHei", sans-serif; margin: 0; padding: 16px 24px; }
+  .TiMu { border-bottom: 1px dashed #ddd; padding: 12px 0; }
+  .Zy_TItle { font-weight: 600; margin-bottom: 6px; }
+  ul { list-style: none; padding: 0; margin: 0; }
+  li { margin: 4px 0; }
+  .after { display: inline-block; cursor: pointer; }
+  .dui { color: #15803d; margin-left: 8px; }
+  .cuo { color: #b91c1c; margin-left: 8px; }
+  .rightAnswer { color: #b45309; margin-top: 4px; font-size: 13px; }
+  .bar { position: sticky; bottom: 0; background: #fff; padding: 10px 0; border-top: 1px solid #eee; }
+  button { padding: 6px 16px; }
+  textarea { width: 240px; }
+</style>
+</head>
+<body>
+<h2>模拟超星章节测验</h2>
+<div id="list"></div>
+<div class="bar"><button id="submitBtn">提交</button> <span id="status"></span></div>
+
+<script>
+// 与超星一致的 DOM：.TiMu / .Zy_TItle .clearfix / input[id^=answertype] / li + .after（不用 label，避免点击冒泡导致双次切换）
+const BANK = [
+  { type: 0, title: '2 + 2 等于多少？', options: ['3', '4', '5', '6'], key: 'B' },
+  { type: 1, title: '下面哪些是偶数？', options: ['2', '3', '4', '5'], key: 'AC' },
+  { type: 3, title: '地球是圆的。', options: ['对', '错'], key: '对' },
+  { type: 0, title: '中国的首都是？', options: ['上海', '北京', '广州', '深圳'], key: 'B' },
+  { type: 4, title: '1 + 1 = ____', options: [], key: '2', blanks: 1 },
+  { type: 1, title: '下面哪些是质数？', options: ['2', '3', '4', '5'], key: 'ABD' }
+];
+
+let round = 0;
+
+function render() {
+  const list = document.getElementById('list');
+  list.innerHTML = BANK.map((q, qi) => {
+    const hidden = '<input type="hidden" class="typeHolder" id="answertype' + qi + '" value="' + q.type + '">';
+    if (q.type === 4) {
+      return '<div class="TiMu" data-qi="' + qi + '">' + hidden +
+        '<div class="Zy_TItle"><div class="clearfix">' + (qi + 1) + '、' + q.title + '</div></div>' +
+        '<ul><li><textarea></textarea></li></ul><div class="result"></div></div>';
+    }
+    const inputType = q.type === 1 ? 'checkbox' : 'radio';
+    const options = q.options.map((text, oi) =>
+      '<li><input type="' + inputType + '" name="q' + qi + '"><span class="after">' +
+      String.fromCharCode(65 + oi) + '、' + text + '</span></li>'
+    ).join('');
+    return '<div class="TiMu" data-qi="' + qi + '">' + hidden +
+      '<div class="Zy_TItle"><div class="clearfix">' + (qi + 1) + '、' + q.title + '</div></div>' +
+      '<ul>' + options + '</ul><div class="result"></div></div>';
+  }).join('');
+
+  // 点选项文本 = 切换（与超星 .after 的行为一致）
+  list.querySelectorAll('.after').forEach((span) => {
+    span.onclick = (event) => {
+      event.stopPropagation();
+      const li = span.closest('li');
+      const input = li.querySelector('input');
+      if (!input) return;
+      if (input.type === 'radio') {
+        li.closest('ul').querySelectorAll('input[type=radio]').forEach((i) => (i.checked = false));
+        input.checked = true;
+      } else {
+        input.checked = !input.checked;
+      }
+    };
+  });
+  document.getElementById('status').textContent = '';
+}
+
+function readAnswer(qi) {
+  const q = BANK[qi];
+  const block = document.querySelector('.TiMu[data-qi="' + qi + '"]');
+  if (q.type === 4) return (block.querySelector('textarea').value || '').trim();
+  const inputs = Array.from(block.querySelectorAll('input[type=radio],input[type=checkbox]'));
+  return inputs.map((input, i) => (input.checked ? String.fromCharCode(65 + i) : '')).join('');
+}
+
+function grade() {
+  round++;
+  let right = 0;
+  BANK.forEach((q, qi) => {
+    const block = document.querySelector('.TiMu[data-qi="' + qi + '"]');
+    const result = block.querySelector('.result');
+    if (!result) return;
+    const mine = readAnswer(qi);
+    // 判断题的答案键是「对/错」，换算成选项字母再比较
+    const key = q.type === 3 ? (q.key === '对' ? 'A' : 'B') : String(q.key).replace(/[^A-Z]/g, '');
+    const ok = q.type === 4 ? mine === q.key : String(mine).replace(/[^A-Z]/g, '') === key;
+    if (ok) right++;
+    result.innerHTML = ok ? '<span class="dui">正确</span>' : '<span class="cuo">错误</span>';
+    if (!ok && round >= 2) {
+      result.insertAdjacentHTML('beforeend', '<div class="rightAnswer">正确答案：' + q.key + '</div>');
+    }
+  });
+  document.getElementById('status').textContent =
+    '本次得分：' + Math.round((right / BANK.length) * 100) + ' 分（第 ' + round + ' 次提交）';
+}
+
+// 与超星一致的两个全局函数
+function btnBlueSubmit() {}
+function submitCheckTimes() {
+  try {
+    grade();
+  } catch (e) {
+    document.getElementById('status').textContent = '判分失败：' + e.message;
+  }
+}
+
+document.getElementById('submitBtn').onclick = () => {
+  btnBlueSubmit();
+  setTimeout(submitCheckTimes, 300);
+};
+
+render();
+</script>
+</body>
+</html>

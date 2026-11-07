@@ -1,0 +1,16 @@
+{
+  "port": 9222,
+  "outDir": "",
+  "title": "超星章节测验题库",
+  "maxRounds": 6,
+  "passLine": 60,
+  "judgeTimeoutSeconds": 20,
+  "batchSize": 10,
+  "ai": {
+    "baseUrl": "https://api.deepseek.com",
+    "apiKey": "",
+    "model": "deepseek-chat"
+  },
+  "mockAnswers": {},
+  "_说明": "复制本文件为 config.json，并在 ai.apiKey 里填入你的 API Key；baseUrl/model 按服务商修改"
+}

@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>OCS 用户脚本加载测试（GM 桩环境）</title>
+<style>
+  body { font: 14px/1.6 "Microsoft YaHei", sans-serif; margin: 0; padding: 16px; }
+  #log { white-space: pre-wrap; font-family: Consolas, monospace; font-size: 12px; background: #0b1020; color: #d7e0ff; padding: 12px; border-radius: 8px; }
+  .ok { color: #4ade80; } .bad { color: #f87171; } .warn { color: #fbbf24; }
+</style>
+</head>
+<body>
+<h2>OCS 用户脚本加载测试</h2>
+<p>这个页面只做一件事：提供最小可用的 GM_* 桩，然后手动注入 dist/ocs.user.js，观察能否启动。</p>
+<div id="log"></div>
+<script>
+/**
+ * GM API 桩：用 localStorage 模拟脚本管理器存储，
+ * GM_xmlhttpRequest 用 fetch 转发，GM_info 伪装成 Tampermonkey。
+ */
+(function () {
+	const prefix = '__gm__';
+	const store = {
+		get(k, d) {
+			const v = localStorage.getItem(prefix + k);
+			if (v === null) return d;
+			try { return JSON.parse(v); } catch { return d; }
+		},
+		set(k, v) { localStorage.setItem(prefix + k, JSON.stringify(v)); },
+		del(k) { localStorage.removeItem(prefix + k); },
+		keys() { return Object.keys(localStorage).filter((k) => k.startsWith(prefix)).map((k) => k.slice(prefix.length)); }
+	};
+	const listeners = {};
+
+	window.unsafeWindow = window;
+	window.GM_info = {
+		script: { name: 'OCS 网课助手', namespace: 'https://enncy.cn', version: '5.3.1', description: 'test' },
+		scriptHandler: 'Tampermonkey',
+		scriptMetaStr: '',
+		version: '5.3.1'
+	};
+	window.GM_getValue = (k, d) => store.get(k, d);
+	window.GM_setValue = (k, v) => store.set(k, v);
+	window.GM_deleteValue = (k) => store.del(k);
+	window.GM_listValues = () => store.keys();
+	window.GM_getTab = (cb) => cb && cb({});
+	window.GM_saveTab = () => {};
+	window.GM_notification = (text, opts) => { (window.__gm_notifications = window.__gm_notifications || []).push({ text, opts }); };
+	window.GM_getResourceText = () => '';
+	window.GM_addValueChangeListener = (k, fn) => { (listeners[k] = listeners[k] || []).push(fn); return k; };
+	window.GM_removeValueChangeListener = (id) => { delete listeners[id]; };
+	window.GM_xmlhttpRequest = (opts) => {
+		const doFetch = window.fetch.bind(window);
+		doFetch(opts.url, { method: opts.method || 'GET', headers: opts.headers, body: opts.data })
+			.then(async (res) => {
+				const text = await res.text();
+				if (res.ok) opts.onload && opts.onload({ status: res.status, responseText: text, response: text, finalUrl: opts.url, responseHeaders: '' });
+				else opts.onerror && opts.onerror({ status: res.status, statusText: res.statusText });
+			})
+			.catch((e) => opts.onerror && opts.onerror(e));
+	};
+})();
+
+/** 记录控制台错误，供测试断言 */
+window.__errors = [];
+const origError = console.error;
+console.error = function (...args) {
+	window.__errors.push(args.map(String).join(' ').slice(0, 300));
+	origError.apply(console, args);
+};
+window.addEventListener('error', (e) => window.__errors.push('window.onerror: ' + (e.message || '').slice(0, 200)));
+window.addEventListener('unhandledrejection', (e) => window.__errors.push('unhandled: ' + String(e.reason).slice(0, 200)));
+
+document.getElementById('log').textContent = 'GM 桩已就绪，等待注入用户脚本…';
+</script>
+</body>
+</html>
+
