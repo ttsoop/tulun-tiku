@@ -1,122 +1,113 @@
-# 题库生成器（接管 Chrome）
+# 超星题库生成器｜新手教程
 
-> 完整步骤见 **[USAGE.md](USAGE.md)**（启动 Chrome、配置 AI、采集、打包、导入油猴、排错）。
+这个工具可以从超星学习通的章节测验中读取题目、填写答案，并把结果导出成可以离线查看的题库。它连接你专门启动的 Chrome 窗口，使用你在窗口里手动登录的账号。
 
-打开你**已登录**的 Chrome，读页面上的题目 → 自动作答 → 提交 → 读判分反馈 → 迭代到全对 → 导出题库（含答案、解析、疑点）。
+第一次使用，建议先用仓库自带的模拟测验试跑。已有的图论题库可以直接打开 [离线查看器](../../题库/图论全章节题库/index.html)。
 
-不依赖油猴脚本，直接通过 Chrome 调试端口（CDP）操作，所以用的是你自己的登录态。
+## 1. 准备环境
 
-## 一、准备
+下面以 Windows PowerShell 为例。打开 `tulun-tiku` 文件夹，在资源管理器地址栏输入 `powershell` 并回车。后续命令都从这个窗口执行。
 
-1. 用调试端口启动 Chrome（**必须用独立 profile**，Chrome 136+ 不允许默认 profile 开调试端口）：
-
-   ```powershell
-   "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --user-data-dir="D:\ocs-cdp"
-   ```
-
-2. 在这个新窗口里登录超星，打开要刷的**章节测验**页面，停在题目页。
-3. 复制 `config.example.json` 为 `config.json`，填 AI 接口（也可以只设环境变量）：
-
-   ```json
-   { "ai": { "baseUrl": "https://api.deepseek.com", "apiKey": "sk-...", "model": "deepseek-chat" } }
-   ```
-
-   环境变量优先：`OCS_AI_BASE_URL` / `OCS_AI_API_KEY` / `OCS_AI_MODEL`。
-
-## 二、三步用法
+安装 Node.js（例如 24.x）和 Google Chrome。装好 Node.js 后重新打开 PowerShell，逐行执行：
 
 ```powershell
-# 1) 只读探测：确认能连上、能识别题目（不会点任何东西）
+node --version
+npm.cmd --version
+npm.cmd install --no-save --package-lock=false playwright-core
+```
+
+前两行应分别显示版本号。最后一行安装工具连接 Chrome 所需的依赖。安装完成后，当前目录应有 `node_modules\playwright-core`。
+
+## 2. 用本地模拟测验试跑
+
+把下面三行粘贴到 PowerShell。第一行应返回 `True`。如果返回 `False`，把引号里的路径改成你电脑上的 Chrome 安装路径。可在日常使用的 Chrome 地址栏打开 `chrome://version`，查看「可执行文件路径」。
+
+```powershell
+Test-Path "C:\Program Files\Google\Chrome\Application\chrome.exe"
+$quizUrl = ([uri]((Resolve-Path ".\tools\bank-builder\quiz.html").Path)).AbsoluteUri
+& "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 "--user-data-dir=$env:LOCALAPPDATA\tulun-bank-builder-chrome" --new-window $quizUrl
+```
+
+Chrome 会打开一个包含 6 道题的模拟页面。专用配置目录会单独保存这个窗口的登录状态，下次可以继续用同一个目录。
+
+保持这个 Chrome 窗口打开，在 PowerShell 执行：
+
+```powershell
+node tools/bank-builder/index.mjs probe --url quiz.html
+```
+
+看到 `[定位] 题目数 6` 和前几道题的预览，就说明连接成功。这一步只读取题目，无需登录或配置 AI。想试试把原始题目保存到文件，可以继续执行：
+
+```powershell
+node tools/bank-builder/index.mjs extract --url quiz.html
+```
+
+成功后会生成 `tools/bank-builder/out/extract.json`。
+
+## 3. 在自己的章节测验上试用
+
+### 打开测验
+
+在刚才启动的专用 Chrome 窗口里关闭模拟测验标签页，登录超星，然后进入课程的章节学习页。点开一个课程允许使用此工具的章节练习，等题目加载出来。
+
+```powershell
 node tools/bank-builder/index.mjs probe
-
-# 2) 只作答、不提交：先看看填得对不对（导出为"未验证"题库）
-node tools/bank-builder/index.mjs run
-
-# 3) 真迭代：作答 + 提交 + 读判分 + 回炉，直到全部判对
-node tools/bank-builder/index.mjs run --submit --rounds 6
 ```
 
-产物在 `tools/bank-builder/out/`（可用 `--out 目录` 改）：
+先核对终端显示的页面地址和题目预览。调试窗口里同时打开多个测验时，可以用 `--url "地址里的关键字"` 缩小范围，或只保留目标测验标签页。
 
-```
-out/
-├─ questions.json   题库（题面/选项/答案/解析/疑点/逐轮证据）
-├─ answers.csv      表格版
-└─ index.html       离线查看器（搜索、题型筛选、只看疑点、高亮正确选项）
-```
+如果你只想提取题目，运行 `node tools/bank-builder/index.mjs extract` 即可。需要让工具填写答案时，继续配置 AI。
 
-`questions.json` 结构与「图论章节题库」兼容，**可以直接导回油猴脚本的「本地题库」**使用。
+### 配置 AI 接口
 
-## 三、迭代策略（按页面判分能力自动切换）
-
-| 判分页给了什么 | 策略 |
-|---|---|
-| 逐题对错 + 正确答案 | 正确答案直接当 ground truth，不再问 AI |
-| 逐题对错（无正确答案） | 错的/未知的题带上「上次答案 + 判错」喂 AI 重答；已判对的保持不动 |
-| 只有「未及格」弹窗 | 整卷带反馈重评（含上次答案） |
-| 什么都没有 | 只能按当前答案导出，全部标记「未验证」 |
-
-停止条件：所有题都被判 `正确`，或达到 `--rounds`，或页面已不可编辑（提交后锁定）。
-
-## 四、参数
-
-| 参数 | 说明 |
-|---|---|
-| `--port 9222` | 调试端口 |
-| `--url 关键字` | 只在 URL 含该关键字的页面里找题（多标签页时用） |
-| `--submit` | **不加就只作答不提交** |
-| `--rounds 6` | 最多几轮 |
-| `--verbose` | 逐题打印「答案 / 判定 / 正解」 |
-| `--mock` | 用 `config.mockAnswers` 代替 AI（离线自测用） |
-| `--out 目录` | 导出目录 |
-| `--bank 文件` | 已有题库（questions.json）当种子：命中就直接用，不消耗 AI |
-
-## 五、超星特有的三件事（工具已处理）
-
-1. **加密字体**：超星把题面字符换成别的字（如「下列」显示成「忬列」），只有渲染出的字形是对的。
-   工具会把 `lib/font-decrypt.bundle.js`（仓库 `packages/scripts/src/utils/font-decrypt` 的打包件）
-   注入页面，用 canvas 渲染字形并与 `lib/font_ref_cx.bin` 特征表比对，还原出明文后再抽题。
-   这两个文件不需要随平台更新；重建方式：
-
-   ```powershell
-   node -e "require('esbuild').buildSync({entryPoints:['packages/scripts/src/utils/font-decrypt/index.ts'],bundle:true,format:'iife',globalName:'OCSFONT',outfile:'tools/bank-builder/lib/font-decrypt.bundle.js',target:'es2018'})"
-   Invoke-WebRequest 'https://cdn.ocsjs.com/resources/font/font_ref_cx.bin' -OutFile tools/bank-builder/lib/font_ref_cx.bin
-   ```
-
-2. **选项不是 input**：超星的选项是 `<li onclick="addMultipleChoice(this)">`，选中状态在 `aria-checked` 上。
-   工具直接点 `li`，但**提交时读的是隐藏域 `#answer<qid>`**，所以点完还会把隐藏域同步成目标答案
-   （判断题写 `true/false`），否则界面看着选中了、提交上去还是旧答案。
-
-3. **确认框在父页面**：`btnBlueSubmit()` 之后弹出的是父页面的 `.popDiv`（「确认提交？ 提交 / 取消」），
-   不在 iframe 里；「未达到及格线，请重做」的提示同理。工具用 `clickPopupButton` 在父页面点。
-
-## 六、疑点标记
-
-导出时对每道题计算 `flags`：
-
-- `未验证`：平台从未判过这题正确
-- `答案冲突`：多轮答案不一致且没有被验证
-- `半对半错`：多选题被平台判为部分正确（漏选/选错）
-- `不支持题型`：连线/完形/阅读，当前自动作答不支持
-- `未作答`：没拿到任何答案
-
-## 七、限制（务必知道）
-
-- 只适用于**允许重做的章节测验/作业**。一次性考试的提交即定局，`--submit` 前请确认。
-- 平台会记录提交次数（超星常见 3 次），轮次别开太大。
-- 题目图片目前只记录 URL（`images` 字段），AI 看不到图；图标题会退化为纯文字匹配。
-- 判分页结构因学校/版本而异，选择器集中在 `lib/cx.mjs`，识别不到时用 `probe` + `--verbose` 定位。
-
-## 八、自测
-
-仓库内置一个模拟测验页（`mock/quiz.html`），可以不动真实账号验证全流程：
+首次配置时，把模板复制一份并用记事本打开：
 
 ```powershell
-# 另开一个 headless Chrome 加载模拟页
-chrome --headless=new --remote-debugging-port=9336 --user-data-dir=%TEMP%\cdp-mock `
-  "file:///<仓库路径>/tools/bank-builder/mock/quiz.html"
-node tools/bank-builder/index.mjs run --port 9336 --submit --rounds 4 --mock --verbose
+Copy-Item .\tools\bank-builder\config.example.json .\tools\bank-builder\config.json
+notepad .\tools\bank-builder\config.json
 ```
 
+在 `"ai"` 对象里，把 `baseUrl`、`apiKey` 和 `model` 换成服务商提供的接口地址、API 密钥和模型名称，保留文件里的引号和逗号。接口需兼容 `/chat/completions`，工具会在基础地址后补上这段路径。配置文件已列入 `.gitignore`，请把密钥留在本机。
 
+### 先填写，再决定是否提交
 
+```powershell
+node tools/bank-builder/index.mjs run
+```
+
+这条命令会调用 AI、在浏览器里填写答案，并导出结果。查看浏览器里实际选中的答案，也可以打开导出的 `index.html` 检查。此时的答案通常标记为「未验证」。
+
+只有课程明确允许自动作答与提交时，才使用下面的命令。`--submit` 会在你的账号上真实交卷，并可能消耗测验次数。第一次可以把轮数设为 1，先看平台反馈。
+
+```powershell
+node tools/bank-builder/index.mjs run --submit --rounds 1
+```
+
+## 4. 查看导出结果
+
+单个测验默认导出到 `tools/bank-builder/out/`。用 `--out "tools/bank-builder/out/练习一"` 可以为这次运行指定独立目录。
+
+| 文件 | 怎么用 |
+| --- | --- |
+| `index.html` | 双击打开，用浏览器查看题目、答案、解析和疑点 |
+| `answers.csv` | 用 Excel 等表格软件打开 |
+| `questions.json` | 保存结构化题库，可导入支持该格式的本地题库功能 |
+
+先检查标有「未验证」「答案冲突」或「不支持题型」的题目。带图题也要人工核对，AI 作答时只收到文字和图片数量提示。
+
+## 5. 可选操作
+
+- **复用已有题库**。在 `run` 命令末尾加 `--bank "题库/图论全章节题库/questions.json"`。工具会优先复用匹配的答案，仍可能调用 AI 补解析。
+- **按课程目录采集**。在专用 Chrome 打开课程的「章节学习」页，然后执行 `node tools/bank-builder/run-all.mjs --out "tools/bank-builder/out/我的课程"`。工具会遍历小节，采集可读取的题目和已有答案。加上 `--submit` 才会自动作答并提交未完成的测验。它会从输出目录的 `state.json` 载入已采集记录，每门课请使用单独的输出目录。
+- **打包仓库自带的图论题库**。`package-bank.mjs` 专门用于图论题库，固定读取 `tools/bank-builder/out/all/questions.json`，并写入仓库的 `题库/图论全章节题库/`。其他课程可直接使用导出目录里的查看器。
+
+## 常见问题
+
+| 提示或现象 | 怎么处理 |
+| --- | --- |
+| 找不到 `node` 或 `npm.cmd` | 安装 Node.js 后重新打开 PowerShell，再检查版本号 |
+| 找不到 `playwright-core` | 确认在 `tulun-tiku` 根目录，重新执行第 1 步的安装命令 |
+| `ECONNREFUSED` 或 CDP 连接失败 | 确认专用 Chrome 窗口仍开着，且启动参数里的端口与工具使用的端口一致。也可以在该窗口打开 `http://127.0.0.1:9222/json/version` 检查是否能看到版本信息 |
+| 已连上但没找到题目 | 点开具体小节的测验，等题目显示后重试。若使用了 `--url`，核对关键字是否在标签页地址里 |
+| AI 返回 `401`、`404` 或超时 | 检查密钥、模型名和接口地址。若设了 `OCS_AI_API_KEY`、`OCS_AI_BASE_URL` 或 `OCS_AI_MODEL`，它们会优先于配置文件 |
+| 提交时出现验证码 | 按浏览器页面提示手动处理，并先查看当前提交状态，再决定是否重试 |

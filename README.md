@@ -16,7 +16,7 @@
 
 **想离线答题**：装好 [OCS 油猴脚本](https://github.com/ocsjs/ocsjs) → 「⚙️ 全局设置 → 本地题库 → 导入题库文件」→ 选 `题库/图论全章节题库/questions.json`。
 
-**想自己刷别的课**：见 [tools/bank-builder/USAGE.md](tools/bank-builder/USAGE.md)。
+**想自己采集章节测验**：见 [题库生成器新手教程](tools/bank-builder/README.md)。
 
 ## 题库概况
 
